@@ -16,4 +16,8 @@ COPY . .
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Runs migrations before starting the server. Docker Compose overrides this
+# with the same sequence explicitly; this default also covers platforms
+# (e.g. Render's free tier) that deploy the image directly without a
+# separate pre-deploy-command step.
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
