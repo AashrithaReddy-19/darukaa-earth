@@ -10,8 +10,14 @@ track carbon sequestration and biodiversity trends over time.
 
 **Repository:** https://github.com/AashrithaReddy-19/darukaa-earth (private — see reviewer
 access notes in the submission document)
-**Live URLs:** not yet deployed — see [section 15](#15-deployment) for the exact steps to deploy
-this repository to Vercel + Render.
+**Live frontend:** https://darukaa-earth-blush.vercel.app
+**Live backend API / Swagger docs:** https://darukaa-backend-uaqv.onrender.com/docs
+**Demo login:** `admin@darukaa.earth` / `Demo@12345`
+
+> Both services run on free tiers (Render free web services and free Postgres spin down after
+> inactivity and can take ~30-60s to wake on the first request; the free Postgres also expires
+> 30 days after creation). This is fine for a hackathon demo but not a production SLA — see
+> [section 16](#16-trade-offs--future-improvements).
 
 ---
 
@@ -402,7 +408,21 @@ backend redeploy — entirely via GitHub Actions secrets, no hard-coded credenti
 
 ## 15. Deployment
 
-Two supported paths — pick whichever fits your workflow:
+**This repository is already deployed** — see the live URLs at the top of this README. It was
+deployed with the Render and Vercel CLIs directly (`render` and `vercel`) rather than through
+their dashboard GitHub integrations, because connecting a private repo to either platform's
+GitHub App requires a one-time authorization click in a browser that wasn't available in the
+automated session that built this. The backend runs from a Docker image published to GitHub
+Container Registry (`ghcr.io/aashrithareddy-19/darukaa-backend`) rather than a Render Blueprint
+build, for the same reason. Two platform quirks worth knowing if you redeploy:
+- Render's free web-service plan does not support pre-deploy commands, one-off jobs, or SSH — so
+  `alembic upgrade head` runs as part of the container's own startup command instead (see
+  `backend/Dockerfile`'s `CMD`), which works on any plan.
+- Vercel's SSO Deployment Protection is on by default for new projects created via the CLI; it
+  was disabled for this project (`vercel project protection disable <project> --sso`) so the live
+  URL is publicly reachable without a Vercel login.
+
+Two supported paths for your own deployment — pick whichever fits your workflow:
 
 ### Option 1 — native Git integrations (simplest)
 
@@ -464,7 +484,9 @@ Email:    admin@darukaa.earth
 Password: Demo@12345
 ```
 
-Seed this account via `python -m scripts.seed` (see [section 11](#11-seeding-demo-data)) before
+This account already exists and is seeded on the live deployment linked at the top of this
+README — log in there directly with no setup required. For your own deployment or local run,
+seed this account via `python -m scripts.seed` (see [section 11](#11-seeding-demo-data)) before
 logging in — the account does not exist until the seed script has been run against your database.
 
 ## 18. Screenshots
