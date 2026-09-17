@@ -1,0 +1,103 @@
+/** @type {import('tailwindcss').Config} */
+export default {
+  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
+  theme: {
+    extend: {
+      colors: {
+        forest: {
+          50: '#eef4f0',
+          100: '#d3e4da',
+          200: '#a8c9b6',
+          300: '#7cae91',
+          400: '#4f9370',
+          500: '#357a56',
+          600: '#276044',
+          700: '#1f4d37',
+          800: '#1b3a2f',
+          900: '#122a22',
+          950: '#0b1a15',
+        },
+        teal: {
+          50: '#eafaf7',
+          100: '#cdf1ea',
+          200: '#9be3d6',
+          300: '#63cfbd',
+          400: '#37b3a1',
+          500: '#219586',
+          600: '#19776c',
+          700: '#175f57',
+          800: '#154c46',
+          900: '#123f3a',
+        },
+        charcoal: {
+          50: '#f4f5f5',
+          100: '#e4e6e6',
+          200: '#c7cbcb',
+          300: '#a3a9a9',
+          400: '#7c8484',
+          500: '#616a6a',
+          600: '#4c5454',
+          700: '#3d4444',
+          800: '#2b3232',
+          900: '#1a1f1f',
+          950: '#101414',
+        },
+        sand: {
+          50: '#fbf9f4',
+          100: '#f5f0e4',
+          200: '#ece2c9',
+          300: '#e0d0a8',
+          400: '#cdb67e',
+          500: '#b99c5c',
+        },
+        offwhite: '#faf8f3',
+        terracotta: {
+          50: '#fbf0ed',
+          100: '#f5dcd4',
+          200: '#e8b3a2',
+          300: '#d98871',
+          400: '#c66245',
+          500: '#b3402e',
+          600: '#963325',
+          700: '#792921',
+          800: '#5c211c',
+        },
+      },
+      fontFamily: {
+        sans: [
+          'Inter',
+          'ui-sans-serif',
+          'system-ui',
+          '-apple-system',
+          'Segoe UI',
+          'Roboto',
+          'Helvetica Neue',
+          'Arial',
+          'sans-serif',
+        ],
+      },
+      boxShadow: {
+        card: '0 1px 2px 0 rgba(16, 20, 20, 0.04), 0 1px 3px 0 rgba(16, 20, 20, 0.06)',
+        'card-hover': '0 4px 10px -2px rgba(16, 20, 20, 0.10), 0 2px 6px -2px rgba(16, 20, 20, 0.06)',
+      },
+      borderRadius: {
+        xl: '0.875rem',
+      },
+      keyframes: {
+        'toast-in': {
+          '0%': { opacity: '0', transform: 'translateY(-8px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
+        'fade-in': {
+          '0%': { opacity: '0' },
+          '100%': { opacity: '1' },
+        },
+      },
+      animation: {
+        'toast-in': 'toast-in 0.2s ease-out',
+        'fade-in': 'fade-in 0.15s ease-out',
+      },
+    },
+  },
+  plugins: [],
+}
