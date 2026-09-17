@@ -19,7 +19,9 @@ name: Deploy
 #   VITE_MAPBOX_TOKEN       Production Mapbox token
 #
 # No secret is ever hard-coded in this file — all are injected at run time
-# from the repository's encrypted secrets store.
+# from the repository's encrypted secrets store. Until these secrets are
+# added, both jobs below detect that and skip cleanly (they do not fail the
+# workflow) so pushes to main aren't blocked by an unconfigured deploy step.
 
 on:
   push:
@@ -36,21 +38,35 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check Vercel secrets are configured
+        id: check
+        run: |
+          if [ -n "${{ secrets.VERCEL_TOKEN }}" ] && [ -n "${{ secrets.VERCEL_ORG_ID }}" ] && [ -n "${{ secrets.VERCEL_PROJECT_ID }}" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping Vercel deploy — VERCEL_TOKEN/VERCEL_ORG_ID/VERCEL_PROJECT_ID are not set as repository secrets yet. See docs in this file's header for what to add."
+          fi
+
       - name: Set up Node
+        if: steps.check.outputs.ready == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: "20"
 
       - name: Install Vercel CLI
+        if: steps.check.outputs.ready == 'true'
         run: npm install --global vercel@latest
 
       - name: Pull Vercel environment
+        if: steps.check.outputs.ready == 'true'
         run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
       - name: Build project artifacts
+        if: steps.check.outputs.ready == 'true'
         run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
@@ -59,6 +75,7 @@ jobs:
           VITE_MAPBOX_TOKEN: ${{ secrets.VITE_MAPBOX_TOKEN }}
 
       - name: Deploy to Vercel
+        if: steps.check.outputs.ready == 'true'
         run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
@@ -71,7 +88,7 @@ jobs:
       - name: Trigger Render deploy hook
         run: |
           if [ -z "${{ secrets.RENDER_DEPLOY_HOOK_URL }}" ]; then
-            echo "RENDER_DEPLOY_HOOK_URL secret is not set — skipping backend deploy trigger."
-            exit 1
+            echo "::notice::Skipping Render deploy — RENDER_DEPLOY_HOOK_URL is not set as a repository secret yet."
+            exit 0
           fi
           curl -fsS -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
