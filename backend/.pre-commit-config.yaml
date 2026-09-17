@@ -1,0 +1,16 @@
+repos:
+  - repo: https://github.com/psf/black
+    rev: 24.10.0
+    hooks:
+      - id: black
+        language_version: python3.11
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: [--fix]
+
+# Note: pytest is intentionally NOT run as a pre-commit hook here -- the suite
+# needs a live Postgres+PostGIS database (TEST_DATABASE_URL), which pre-commit
+# hooks shouldn't assume is available. Run `pytest` manually / in CI instead.
