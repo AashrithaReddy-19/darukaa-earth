@@ -1,0 +1,77 @@
+name: Deploy
+
+# Manual/production deployment pipeline using GitHub Actions + secrets.
+#
+# This workflow is OPTIONAL: the simplest path to production is connecting
+# Vercel and Render directly to this GitHub repository via their native Git
+# integrations (see README.md "Deployment" section, Option 1). This workflow
+# is Option 2 — a fully scripted deploy driven by GitHub Actions, useful if
+# you want deploys gated on CI passing, or don't want to grant Vercel/Render
+# direct repo access.
+#
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#   VERCEL_TOKEN            Vercel personal access token
+#   VERCEL_ORG_ID           Vercel organization ID
+#   VERCEL_PROJECT_ID       Vercel project ID (frontend project)
+#   RENDER_DEPLOY_HOOK_URL  Render deploy hook URL for the backend service
+#   VITE_API_BASE_URL       Public backend API server root (no /api/v1 suffix — the frontend
+#                           appends it itself), e.g. https://darukaa-api.onrender.com
+#   VITE_MAPBOX_TOKEN       Production Mapbox token
+#
+# No secret is ever hard-coded in this file — all are injected at run time
+# from the repository's encrypted secrets store.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  deploy-frontend:
+    name: Deploy frontend to Vercel
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Pull Vercel environment
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      - name: Build project artifacts
+        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
+          VITE_MAPBOX_TOKEN: ${{ secrets.VITE_MAPBOX_TOKEN }}
+
+      - name: Deploy to Vercel
+        run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+  deploy-backend:
+    name: Deploy backend to Render
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Render deploy hook
+        run: |
+          if [ -z "${{ secrets.RENDER_DEPLOY_HOOK_URL }}" ]; then
+            echo "RENDER_DEPLOY_HOOK_URL secret is not set — skipping backend deploy trigger."
+            exit 1
+          fi
+          curl -fsS -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
