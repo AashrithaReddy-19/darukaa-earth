@@ -8,6 +8,11 @@ track carbon sequestration and biodiversity trends over time.
 > species observations) is **seeded demonstration data**, clearly labelled as such in the UI —
 > it is not real field data from an actual Darukaa.Earth project.
 
+**Repository:** https://github.com/AashrithaReddy-19/darukaa-earth (private — see reviewer
+access notes in the submission document)
+**Live URLs:** not yet deployed — see [section 15](#15-deployment) for the exact steps to deploy
+this repository to Vercel + Render.
+
 ---
 
 ## Table of contents
