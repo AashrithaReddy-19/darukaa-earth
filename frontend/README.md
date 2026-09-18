@@ -98,6 +98,35 @@ src/
   state is reset, which causes `ProtectedRoute` to redirect to `/login`.
 - Logging out simply clears the stored tokens and resets `AuthContext` state.
 
+## Feature extensions (v2)
+
+Five additive features were built on top of the original app, following the binding contract in
+[`../docs/FEATURE_CONTRACT_V2.md`](../docs/FEATURE_CONTRACT_V2.md) (read that file for the exact
+API shapes, enums, and scoring/alert semantics — nothing in `../docs/API_CONTRACT.md` changed).
+All values these features display (scores, alerts, timeline summaries, seeded observations,
+actions) are **demo intelligence data**: deterministic and rule-based, computed from the existing
+seeded analytics — never a trained ML model or a live sensor/satellite feed. A small "Demo
+intelligence data" badge (`src/features/intelligence/DemoIntelligenceBadge.tsx`) marks this
+wherever such values are shown, mirroring the existing "Demo monitoring data" badge on the
+analytics page.
+
+- **Nature Health Score & Alerts** — a band-colored gauge card with a "Why this score?" breakdown
+  and a recalculate action on `SiteDetailPage` (`src/features/riskAssessment/`), plus a new
+  `/alerts` route (`src/pages/AlertsPage.tsx`) with severity/status filters and
+  Acknowledge/Resolve actions, and a compact alerts summary on the Dashboard
+  (`src/features/alerts/AlertsSummaryCard.tsx`).
+- **Restoration Impact Timeline** — a first-vs-latest comparison card on `SiteDetailPage`
+  (`src/features/impactTimeline/`), with a template-generated (not LLM-generated) summary.
+- **Field Observations** — an add-observation form and filterable recent-observations list on
+  `SiteDetailPage` (`src/features/observations/`); observations with coordinates are plotted as
+  markers on the site's existing boundary map.
+- **Conservation Action Planner** — a new `/actions` route (`src/pages/ActionsPage.tsx`) grouping
+  actions by status with a status-update control, reachable both directly and pre-filled from an
+  alert card on `/alerts`; open-action counts appear on the Dashboard and a site-scoped open
+  actions list appears on `SiteDetailPage` (`src/features/actions/`).
+- **Audit Trail** — a new read-only, reverse-chronological `/audit` route
+  (`src/pages/AuditLogPage.tsx`) filterable by project, with no edit/delete UI anywhere.
+
 ## Testing
 
 Tests live next to the code they cover (`*.test.tsx`). `src/test/setup.ts` mocks `mapbox-gl` and
@@ -108,6 +137,11 @@ be unit-tested without a browser. Coverage includes:
 - `LoginForm` — Zod validation (invalid email, short password) and successful submit
 - `ProjectForm` — required-field validation and the end-date-before-start-date rule
 - `SiteForm` — the "please draw a boundary" validation message and the valid-boundary path
+- `NatureHealthScoreCard` — renders the correct score-band label/color for a given assessment prop
+- `AlertsPage` — refetches and re-renders correctly when the severity/status filters change
+- `AlertCard` — Acknowledge/Resolve call `PATCH /alerts/{id}` with the right body and show a toast
+- `ObservationForm` — required-field and coordinate-range validation
+- `ActionCard` — the status control calls `PATCH /actions/{id}` with the right body
 
 ## Notable implementation choices / deviations
 
@@ -131,3 +165,15 @@ be unit-tested without a browser. Coverage includes:
   `npm install` regardless of which directory you run it from — no manual step required. The hook
   script itself lives at `frontend/.husky/pre-commit` and `cd`s into `frontend` before running
   `npx lint-staged`.
+- **`SitesPolygonMap` gained an optional `markers` prop** to plot field-observation coordinates on
+  the existing read-only boundary map (used by `SiteDetailPage` for Feature 3). This is the one
+  addition to an existing component outside the files the v2 brief called out for editing — it was
+  additive-only (a new optional prop, default `[]`), required no changes to any existing caller,
+  and the brief itself asked for markers on "`SitesPolygonMap` or wherever the site's map component
+  lives."
+- **"Site" selection in the Create Action modal** (when not pre-filled from an alert) reuses the
+  existing `GET /dashboard/map-sites` endpoint rather than a new "list all my sites" endpoint,
+  since the v2 contract doesn't add one and this data was already available.
+- **Field observation list filtering** is done client-side against one unfiltered
+  `GET /sites/{id}/field-observations` fetch (rather than re-fetching per filter change), so the
+  same fetch can also feed the boundary-map markers without a duplicate request.

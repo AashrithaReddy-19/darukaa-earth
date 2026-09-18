@@ -42,6 +42,7 @@ access notes in the submission document)
 17. [Demo credentials](#17-demo-credentials)
 18. [Screenshots](#18-screenshots)
 19. [Security notes](#19-security-notes)
+20. [Nature-Intelligence Module (v2)](#20-nature-intelligence-module-v2)
 
 ---
 
@@ -80,6 +81,11 @@ production-shaped code on both ends — rather than a static mockup.
 - Dockerised local dev stack (Postgres+PostGIS, FastAPI, React) that runs with one command.
 - CI on every PR (lint, type-check, build, backend tests against a real PostGIS service
   container) and a documented deployment path to Vercel + Render.
+- **Nature-Intelligence Module (v2)**: a deterministic Nature Health Score with explainable
+  alerts, a restoration impact timeline, field observation logging, a conservation action
+  planner, and an immutable audit trail — see [section 20](#20-nature-intelligence-module-v2)
+  for full detail. Every value these features produce is clearly labelled **Demo intelligence
+  data**: deterministic and rule-based, never a trained ML model or real sensor/satellite feed.
 
 ## 3. Architecture
 
@@ -142,8 +148,12 @@ and is unit-testable independently of HTTP or SQL concerns.
 
 ## 5. Database schema
 
-Five tables, all owned (directly or transitively) by a `users` row, enforcing per-user data
-isolation at the query layer:
+Ten tables total: the original five plus five added by the Nature-Intelligence Module (v2,
+[section 20](#20-nature-intelligence-module-v2)) — `site_risk_assessments`, `site_alerts`,
+`field_observations`, `conservation_actions`, `audit_logs`. All are owned (directly or
+transitively) by a `users` row, enforcing per-user data isolation at the query layer.
+
+The original five:
 
 - **users** — account records (`id`, `full_name`, `email` unique, `hashed_password`, `is_active`, timestamps).
 - **projects** — a conservation initiative belonging to a user (`owner_id` FK), with type/status
@@ -247,8 +257,18 @@ served by FastAPI at `/docs` (and ReDoc at `/redoc`) once the backend is running
 | Projects | `GET/POST /projects`, `GET/PATCH/DELETE /projects/{id}` |
 | Sites | `GET/POST /projects/{id}/sites`, `GET/PATCH/DELETE /sites/{id}` |
 | Analytics | `GET/POST /sites/{id}/analytics`, `GET /sites/{id}/species-observations` |
-| Dashboard | `GET /dashboard/summary`, `GET /dashboard/map-sites` |
+| Dashboard | `GET /dashboard/summary`, `GET /dashboard/map-sites`, `GET /dashboard/alerts-summary`, `GET /dashboard/actions-summary` |
 | Health | `GET /health` |
+| Risk assessment (v2) | `GET/POST /sites/{id}/risk-assessment[/recalculate]` |
+| Impact timeline (v2) | `GET /sites/{id}/impact-timeline` |
+| Alerts (v2) | `GET /alerts`, `PATCH /alerts/{id}` |
+| Field observations (v2) | `GET/POST /sites/{id}/field-observations` |
+| Conservation actions (v2) | `GET/POST /actions`, `PATCH /actions/{id}` |
+| Audit log (v2) | `GET /audit-logs` (read-only — no update/delete route exists) |
+
+Full v2 request/response shapes, enums, and every scoring/alert threshold are in
+[`docs/FEATURE_CONTRACT_V2.md`](docs/FEATURE_CONTRACT_V2.md) — see also
+[section 20](#20-nature-intelligence-module-v2) below.
 
 Every project/site/analytics/observation request is scoped to the authenticated user; accessing
 another user's resource returns `404` (not `403`, to avoid leaking existence of other users' data).
@@ -538,6 +558,170 @@ logging in — the account does not exist until the seed script has been run aga
 - Dependency and static-analysis checks (Ruff, ESLint, Black) run in CI on every PR.
 
 ---
+
+## 20. Nature-Intelligence Module (v2)
+
+Five additive features layered on top of the core dashboard, none of which change any existing
+table, endpoint, or the auth flow. Full binding spec (exact JSON shapes, enums, thresholds):
+[`docs/FEATURE_CONTRACT_V2.md`](docs/FEATURE_CONTRACT_V2.md).
+
+> **Demo intelligence data.** Every score, alert, trend, and summary sentence in this module is
+> computed **deterministically from the seeded analytics already in the database**, using plain
+> arithmetic and fixed rules documented below — never a trained AI/ML model, and never real
+> satellite, sensor, acoustic, or carbon-credit data. The UI marks these values with a "Demo
+> intelligence data" badge everywhere they appear, matching the existing "Demo monitoring data"
+> label already used on the analytics page.
+
+### 20.1 Nature Health Score
+
+For each site, take its most recent `site_analytics` record (`latest`) and the record closest to
+(but not after) three months before it (`baseline`; falls back to the earliest available record
+if the site's whole history is under three months old). Compute seven components, each
+normalized to 0–100 (higher is better), and combine them with fixed weights:
+
+| Component | Weight | How it's computed |
+|---|---|---|
+| Ecosystem health | 25% | `latest.ecosystem_health_score` directly |
+| Biodiversity trend | 20% | % change in biodiversity score, baseline → latest, mapped to 0–100 |
+| Vegetation trend | 15% | % change in vegetation cover, same mapping |
+| Carbon trend | 15% | % change in carbon captured, same mapping |
+| Soil moisture | 10% | `latest.soil_moisture_percent` directly |
+| Human disturbance risk | 10% | low → 100, moderate → 55, high → 10 |
+| Species-observation trend | 5% | % change in species count, same mapping |
+
+The trend mapping is `score = clamp(50 + pct_change * 2, 0, 100)` — a 0% change scores 50
+(neutral), a +25% improvement or better scores 100, a −25% decline or worse scores 0.
+`nature_health_score = round(clamp(Σ component × weight, 0, 100))`, banded as:
+
+```
+score ≥ 80            → healthy
+65 ≤ score < 80        → watch
+45 ≤ score < 65        → at_risk
+score < 45             → critical
+```
+
+### 20.2 Alert rules
+
+Recalculating a site's assessment (`POST /sites/{id}/risk-assessment/recalculate`) evaluates six
+conditions against the same `baseline`/`latest` pair; every condition that fires contributes one
+reason to a **single combined alert** for that run (not one alert per condition), skipped
+entirely if the site already has an open alert less than 24 hours old:
+
+- Nature Health Score below 70
+- vegetation cover down more than 8% over the window
+- biodiversity down more than 5 points (absolute) over the window
+- disturbance risk is High
+- soil moisture critically low (under 20%)
+- species observations down more than 15% over the window
+
+Severity is the highest implied by whichever conditions fired (`critical` for a High disturbance
+risk or score under 45, down to `low` for only a sub-70 score). Each alert carries its triggering
+`reasons` as a list, a template-selected `recommendation`, and a status
+(`open` → `acknowledged`/`resolved`) that administrators manage from `/alerts`.
+
+### 20.3 Restoration impact timeline
+
+`GET /sites/{id}/impact-timeline` compares a site's first and latest analytics records and
+template-fills a plain sentence from the deltas, e.g. *"Over the last 12 months, estimated carbon
+capture increased by 18%, vegetation cover improved by 9%, and biodiversity score improved by 6
+points."* — assembled from stored numbers with fixed sentence templates, not generated by an LLM.
+
+### 20.4 Field observations & conservation actions
+
+Administrators can log field observations (species/habitat/threat/restoration-activity notes,
+optionally geotagged) against a site from `/sites/{id}` — geotagged ones appear as markers on the
+existing boundary map. Any alert's recommendation can be converted into a tracked conservation
+action (`/actions`), grouped by status (planned/in progress/completed/cancelled) with its own
+dashboard summary card.
+
+### 20.5 Audit trail
+
+Every project/site create-or-update, alert acknowledgement/resolution, and conservation-action
+create-or-update writes a row to `audit_logs` with a human-readable `summary` (e.g. *"Aashritha
+created a High-priority field survey action for Sundarbans Site A."*). The audit log is
+**insert-only** — no update or delete route exists for it anywhere in the API (enforced by a
+dedicated backend test) — and `metadata` never contains passwords, JWTs, connection strings, or
+the Mapbox token.
+
+### 20.6 New tables (ER addendum)
+
+```mermaid
+erDiagram
+    SITES ||--o{ SITE_RISK_ASSESSMENTS : has
+    SITES ||--o{ SITE_ALERTS : has
+    SITE_RISK_ASSESSMENTS ||--o{ SITE_ALERTS : triggers
+    SITES ||--o{ FIELD_OBSERVATIONS : has
+    SITES ||--o{ CONSERVATION_ACTIONS : has
+    SITE_ALERTS ||--o{ CONSERVATION_ACTIONS : "prompts (optional)"
+    USERS ||--o{ AUDIT_LOGS : performs
+
+    SITE_RISK_ASSESSMENTS {
+        uuid id PK
+        uuid site_id FK
+        float nature_health_score
+        enum score_band
+        float carbon_trend
+        float biodiversity_trend
+        float vegetation_trend
+        float soil_moisture_trend
+        enum disturbance_risk
+        timestamp calculated_at
+    }
+
+    SITE_ALERTS {
+        uuid id PK
+        uuid site_id FK
+        uuid assessment_id FK
+        enum severity
+        string title
+        text description
+        json reasons
+        text recommendation
+        enum status
+        text reviewer_note
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    FIELD_OBSERVATIONS {
+        uuid id PK
+        uuid site_id FK
+        string observer_name
+        enum observation_type
+        text notes
+        float latitude
+        float longitude
+        date observation_date
+        timestamp created_at
+    }
+
+    CONSERVATION_ACTIONS {
+        uuid id PK
+        uuid site_id FK
+        uuid alert_id FK
+        string title
+        text description
+        enum action_category
+        enum priority
+        enum status
+        date due_date
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    AUDIT_LOGS {
+        uuid id PK
+        uuid user_id FK
+        uuid project_id FK
+        uuid site_id FK
+        string action_type
+        string entity_type
+        uuid entity_id
+        string summary
+        json metadata
+        timestamp created_at
+    }
+```
 
 ## Suggested commit history (for reference)
 
