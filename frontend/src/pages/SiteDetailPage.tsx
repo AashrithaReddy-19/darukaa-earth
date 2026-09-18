@@ -9,7 +9,9 @@ import { LoadingSpinner } from '../components/ui/LoadingSpinner'
 import { ErrorState } from '../components/ui/ErrorState'
 import { SiteMetricCards } from '../features/sites/SiteMetricCards'
 import { SitesPolygonMap } from '../features/map/SitesPolygonMap'
+import type { MapMarkerInput } from '../features/map/SitesPolygonMap'
 import { buildSitePopupHtml } from '../features/map/popupHtml'
+import { buildObservationPopupHtml } from '../features/observations/observationPopupHtml'
 import { DateRangeFilter } from '../features/analytics/DateRangeFilter'
 import { DemoDataBadge } from '../features/analytics/DemoDataBadge'
 import { CarbonChart } from '../features/analytics/CarbonChart'
@@ -17,10 +19,16 @@ import { BiodiversityChart } from '../features/analytics/BiodiversityChart'
 import { VegetationChart } from '../features/analytics/VegetationChart'
 import { SpeciesCategoryChart } from '../features/analytics/SpeciesCategoryChart'
 import { EcosystemHealthDoughnut } from '../features/analytics/EcosystemHealthDoughnut'
+import { NatureHealthScoreSection } from '../features/riskAssessment/NatureHealthScoreSection'
+import { ImpactTimelineSection } from '../features/impactTimeline/ImpactTimelineSection'
+import { FieldObservationsSection } from '../features/observations/FieldObservationsSection'
+import { SiteOpenActionsSection } from '../features/actions/SiteOpenActionsSection'
 import { useAsync } from '../hooks/useAsync'
 import { getSite } from '../api/sites'
 import { getSiteAnalytics, getSpeciesObservations } from '../api/analytics'
+import { listFieldObservations } from '../api/observations'
 import type { AnalyticsRange } from '../types/enums'
+import type { FieldObservation } from '../types/observation'
 import {
   ECOSYSTEM_TYPE_LABELS,
   MONITORING_STATUS_COLORS,
@@ -35,6 +43,7 @@ export function SiteDetailPage() {
   const analyticsFetcher = useCallback(() => getSiteAnalytics(siteId!, range), [siteId, range])
   const analyticsState = useAsync(analyticsFetcher, [siteId, range])
   const speciesState = useAsync(() => getSpeciesObservations(siteId!), [siteId])
+  const observationsState = useAsync(() => listFieldObservations(siteId!), [siteId])
 
   if (siteState.isLoading) {
     return (
@@ -55,6 +64,18 @@ export function SiteDetailPage() {
   const site = siteState.data
   const statusColor = MONITORING_STATUS_COLORS[site.monitoring_status]
   const mapColor = site.project?.color ?? statusColor.dot
+  const observationMarkers: MapMarkerInput[] = (observationsState.data?.items ?? [])
+    .filter(
+      (observation): observation is FieldObservation & { latitude: number; longitude: number } =>
+        observation.latitude !== null && observation.longitude !== null,
+    )
+    .map((observation) => ({
+      id: observation.id,
+      lng: observation.longitude,
+      lat: observation.latitude,
+      color: '#b3402e',
+      popupHtml: buildObservationPopupHtml(observation),
+    }))
 
   return (
     <AppLayout>
@@ -116,6 +137,7 @@ export function SiteDetailPage() {
                   }),
                 },
               ]}
+              markers={observationMarkers}
             />
           </div>
         </Card>
@@ -161,6 +183,21 @@ export function SiteDetailPage() {
             </div>
           </div>
         )}
+
+        <NatureHealthScoreSection siteId={site.id} />
+
+        <ImpactTimelineSection siteId={site.id} />
+
+        <FieldObservationsSection
+          siteId={site.id}
+          observations={observationsState.data?.items ?? []}
+          isLoading={observationsState.isLoading}
+          error={observationsState.error}
+          onRetry={observationsState.refetch}
+          onCreated={() => observationsState.refetch()}
+        />
+
+        <SiteOpenActionsSection siteId={site.id} siteName={site.name} />
       </div>
     </AppLayout>
   )
