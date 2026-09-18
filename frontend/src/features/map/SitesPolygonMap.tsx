@@ -15,11 +15,22 @@ export interface MapSiteInput {
   popupHtml: string
 }
 
+/** A single point marker (e.g. a field observation with recorded coordinates). Additive/optional. */
+export interface MapMarkerInput {
+  id: string
+  lng: number
+  lat: number
+  color?: string
+  popupHtml?: string
+}
+
 interface SitesPolygonMapProps {
   sites: MapSiteInput[]
   legendTitle?: string
   legendItems?: { label: string; color: string }[]
   heightClassName?: string
+  /** Optional point markers rendered on top of the boundary polygons (e.g. field observations). */
+  markers?: MapMarkerInput[]
 }
 
 /**
@@ -32,9 +43,11 @@ export function SitesPolygonMap({
   legendTitle,
   legendItems,
   heightClassName = 'h-[420px]',
+  markers,
 }: SitesPolygonMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
+  const markerInstancesRef = useRef<mapboxgl.Marker[]>([])
   const [error, setError] = useState<string | null>(null)
   const token = getMapboxToken()
 
@@ -128,6 +141,43 @@ export function SitesPolygonMap({
       map.once('load', applyData)
     }
   }, [sites, token])
+
+  // Optional point markers (e.g. field observations with recorded coordinates), rendered on top
+  // of the boundary polygons above. Purely additive: when `markers` is omitted/empty this effect
+  // is a no-op and existing polygon-only usages are unaffected.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !token) return
+    if (typeof mapboxgl.Marker !== 'function') return
+
+    const renderMarkers = () => {
+      markerInstancesRef.current.forEach((marker) => marker.remove())
+      markerInstancesRef.current = (markers ?? []).map((marker) => {
+        const instance = new mapboxgl.Marker({ color: marker.color ?? '#b3402e' }).setLngLat([
+          marker.lng,
+          marker.lat,
+        ])
+        if (marker.popupHtml) {
+          instance.setPopup(
+            new mapboxgl.Popup({ closeButton: true, maxWidth: '220px' }).setHTML(marker.popupHtml),
+          )
+        }
+        instance.addTo(map)
+        return instance
+      })
+    }
+
+    if (map.isStyleLoaded()) {
+      renderMarkers()
+    } else {
+      map.once('load', renderMarkers)
+    }
+
+    return () => {
+      markerInstancesRef.current.forEach((marker) => marker.remove())
+      markerInstancesRef.current = []
+    }
+  }, [markers, token])
 
   if (!token) return <MapTokenNotice className={heightClassName} />
   if (error) return <MapErrorNotice message={error} className={heightClassName} />
