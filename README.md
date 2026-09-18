@@ -11,7 +11,7 @@ track carbon sequestration and biodiversity trends over time.
 **Repository:** https://github.com/AashrithaReddy-19/darukaa-earth (private — see reviewer
 access notes in the submission document)
 **Live frontend:** https://darukaa-earth-blush.vercel.app
-**Live backend API / Swagger docs:** https://darukaa-backend-uaqv.onrender.com/docs
+**Live backend API / Swagger docs:** https://darukaa-backend-fg3e.onrender.com/docs
 **Demo login:** `admin@darukaa.earth` / `Demo@12345`
 
 > Both services run on free tiers (Render free web services and free Postgres spin down after
@@ -421,6 +421,16 @@ build, for the same reason. Two platform quirks worth knowing if you redeploy:
 - Vercel's SSO Deployment Protection is on by default for new projects created via the CLI; it
   was disabled for this project (`vercel project protection disable <project> --sso`) so the live
   URL is publicly reachable without a Vercel login.
+- On this Vercel account, only a project's *first* `vercel deploy` reliably completed — every
+  subsequent deploy on the same project hung indefinitely in a "Building…" state (confirmed via
+  direct polling of the deployment URL, independent of the CLI, for 6+ minutes with no progress),
+  most likely an account-level throttle after a burst of CLI activity. The reliable workaround
+  used here: recreate the Vercel project and deploy exactly once with the final, correct env vars
+  already set, then use `vercel alias set <deployment> <stable-alias>.vercel.app` to point a fixed
+  hostname at that deployment — the alias survives independently of which project or deployment
+  it was last assigned to, so it can be repointed without another deploy. Also watch for
+  concurrent `vercel deploy` invocations (e.g. a stray background process) — the Hobby plan allows
+  only one build at a time, and a second overlapping deploy will also hang.
 
 Two supported paths for your own deployment — pick whichever fits your workflow:
 
