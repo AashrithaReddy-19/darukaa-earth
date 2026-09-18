@@ -25,19 +25,36 @@ from sqlalchemy import text  # noqa: E402
 
 from app.core.security import hash_password  # noqa: E402
 from app.db.session import SessionLocal  # noqa: E402
+from app.models.alert import SiteAlert  # noqa: E402
 from app.models.analytics import SiteAnalytics  # noqa: E402
+from app.models.conservation_action import ConservationAction  # noqa: E402
 from app.models.enums import (  # noqa: E402
+    ActionCategory,
+    ActionPriority,
+    ActionStatus,
+    AlertStatus,
     DisturbanceRisk,
     EcosystemType,
     MonitoringStatus,
     ObservationCategory,
+    ObservationType,
     ProjectStatus,
     ProjectType,
 )
+from app.models.field_observation import FieldObservation  # noqa: E402
 from app.models.observation import SpeciesObservation  # noqa: E402
 from app.models.project import Project  # noqa: E402
+from app.models.risk_assessment import SiteRiskAssessment  # noqa: E402
 from app.models.site import Site  # noqa: E402
 from app.models.user import User  # noqa: E402
+from app.repositories.action_repository import ConservationActionRepository  # noqa: E402
+from app.repositories.analytics_repository import AnalyticsRepository  # noqa: E402
+from app.repositories.field_observation_repository import (  # noqa: E402
+    FieldObservationRepository,
+)
+from app.repositories.risk_repository import AlertRepository, RiskAssessmentRepository  # noqa: E402
+from app.services.audit_log_service import record_audit_event  # noqa: E402
+from app.services.risk_service import compute_nature_health, evaluate_alert_rules  # noqa: E402
 
 random.seed(42)
 
@@ -160,8 +177,9 @@ def generate_analytics_series(
 def truncate_all(db) -> None:
     db.execute(
         text(
-            "TRUNCATE TABLE species_observations, site_analytics, sites, projects, users "
-            "RESTART IDENTITY CASCADE"
+            "TRUNCATE TABLE audit_logs, conservation_actions, field_observations, "
+            "site_alerts, site_risk_assessments, species_observations, site_analytics, "
+            "sites, projects, users RESTART IDENTITY CASCADE"
         )
     )
     db.commit()
@@ -315,6 +333,29 @@ def seed() -> None:
         db.commit()
         db.refresh(admin)
 
+        # --- Nature Intelligence repositories (FEATURE_CONTRACT_V2) ---
+        analytics_repo = AnalyticsRepository(db)
+        assessment_repo = RiskAssessmentRepository(db)
+        alert_repo = AlertRepository(db)
+        observation_repo = FieldObservationRepository(db)
+        action_repo = ConservationActionRepository(db)
+
+        audit_count = 0
+
+        def log_audit(*, project_id, site_id, action_type, entity_type, entity_id, summary) -> None:
+            nonlocal audit_count
+            record_audit_event(
+                db,
+                user_id=admin.id,
+                project_id=project_id,
+                site_id=site_id,
+                action_type=action_type,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                summary=summary,
+            )
+            audit_count += 1
+
         months = month_start_series(MONTHS_OF_HISTORY)
         today = date.today()
 
@@ -322,6 +363,14 @@ def seed() -> None:
         total_sites = 0
         total_analytics = 0
         total_observations = 0
+        total_assessments = 0
+        total_alerts = 0
+        total_field_observations = 0
+        total_actions = 0
+        first_site: Site | None = None
+        first_site_project_id = None
+        demo_status_transition_done = False
+        demo_alert_ack_done = False
 
         for project_spec in PROJECTS_SPEC:
             start_date = today - timedelta(days=int(project_spec["start_years_ago"] * 365))
@@ -341,6 +390,14 @@ def seed() -> None:
             db.commit()
             db.refresh(project)
             print(f"  Created project: {project.name}")
+            log_audit(
+                project_id=project.id,
+                site_id=None,
+                action_type="created",
+                entity_type="project",
+                entity_id=project.id,
+                summary=f"{ADMIN_NAME} created the project '{project.name}'.",
+            )
 
             for site_spec in project_spec["sites"]:
                 site_counter += 1
@@ -364,6 +421,17 @@ def seed() -> None:
                 recompute_area(db, site)
                 total_sites += 1
                 print(f"    Created site: {site.name} ({site.area_hectares:.2f} ha)")
+                if first_site is None:
+                    first_site = site
+                    first_site_project_id = project.id
+                log_audit(
+                    project_id=project.id,
+                    site_id=site.id,
+                    action_type="created",
+                    entity_type="site",
+                    entity_id=site.id,
+                    summary=f"{ADMIN_NAME} added a site boundary for {site.name}.",
+                )
 
                 analytics_records = generate_analytics_series(
                     seed_value=site_counter,
@@ -375,6 +443,17 @@ def seed() -> None:
                     db.add(SiteAnalytics(site_id=site.id, **record))
                 total_analytics += len(analytics_records)
                 db.commit()
+                log_audit(
+                    project_id=project.id,
+                    site_id=site.id,
+                    action_type="created",
+                    entity_type="analytics",
+                    entity_id=site.id,
+                    summary=(
+                        f"{ADMIN_NAME} logged {len(analytics_records)} months of analytics "
+                        f"for {site.name}."
+                    ),
+                )
 
                 species_list = SPECIES_BY_ECOSYSTEM[site_spec["ecosystem_type"]]
                 rnd = random.Random(site_counter * 7)
@@ -394,12 +473,200 @@ def seed() -> None:
                     total_observations += 1
                 db.commit()
 
+                # --- Nature Intelligence seed data (FEATURE_CONTRACT_V2) ---
+                # Nature Health Score + alert generation run against the
+                # analytics just seeded above, using the exact same
+                # deterministic scoring/rule engine the API uses
+                # (app/services/risk_service.py) -- this is demo
+                # intelligence data, not a trained model.
+                records = analytics_repo.list_for_site(site.id)
+                computation = compute_nature_health(records)
+                assessment = assessment_repo.create(
+                    SiteRiskAssessment(
+                        site_id=site.id,
+                        nature_health_score=computation.score,
+                        score_band=computation.band,
+                        carbon_trend=computation.carbon_trend,
+                        biodiversity_trend=computation.biodiversity_trend,
+                        vegetation_trend=computation.vegetation_trend,
+                        soil_moisture_trend=computation.soil_moisture_trend,
+                        disturbance_risk=computation.disturbance_risk,
+                    )
+                )
+                total_assessments += 1
+
+                alert_payload = evaluate_alert_rules(computation, site.name)
+                site_alert = None
+                if alert_payload is not None:
+                    site_alert = alert_repo.create(
+                        SiteAlert(
+                            site_id=site.id,
+                            assessment_id=assessment.id,
+                            status=AlertStatus.OPEN.value,
+                            **alert_payload,
+                        )
+                    )
+                    total_alerts += 1
+
+                field_obs_specs = [
+                    (
+                        ObservationType.SPECIES,
+                        "Field team confirmed continued presence of indicator species "
+                        f"at {site.name}.",
+                    ),
+                    (
+                        ObservationType.HABITAT,
+                        f"Routine habitat condition check at {site.name}; cross-referenced "
+                        "against the latest analytics snapshot.",
+                    ),
+                ]
+                obs_rnd = random.Random(site_counter * 11)
+                for obs_type, notes in field_obs_specs:
+                    obs = observation_repo.create(
+                        FieldObservation(
+                            site_id=site.id,
+                            observer_name=ADMIN_NAME,
+                            observation_type=obs_type.value,
+                            notes=notes,
+                            latitude=center_lat,
+                            longitude=center_lng,
+                            observation_date=today - timedelta(days=obs_rnd.randint(1, 60)),
+                        )
+                    )
+                    total_field_observations += 1
+                    log_audit(
+                        project_id=project.id,
+                        site_id=site.id,
+                        action_type="created",
+                        entity_type="field_observation",
+                        entity_id=obs.id,
+                        summary=(
+                            f"{ADMIN_NAME} logged a {obs_type.value} field observation "
+                            f"for {site.name}."
+                        ),
+                    )
+
+                if site_alert is not None:
+                    action = action_repo.create(
+                        ConservationAction(
+                            site_id=site.id,
+                            alert_id=site_alert.id,
+                            title=f"Investigate {site_alert.severity} alert at {site.name}",
+                            description=site_alert.recommendation,
+                            action_category=ActionCategory.RISK_INVESTIGATION.value,
+                            # AlertSeverity and ActionPriority share the same
+                            # value set (low/medium/high/critical).
+                            priority=site_alert.severity,
+                            status=ActionStatus.PLANNED.value,
+                            due_date=today + timedelta(days=14),
+                        )
+                    )
+                    total_actions += 1
+                    log_audit(
+                        project_id=project.id,
+                        site_id=site.id,
+                        action_type="created",
+                        entity_type="action",
+                        entity_id=action.id,
+                        summary=(
+                            f"{ADMIN_NAME} created a {action.priority.title()}-priority "
+                            f"{action.action_category} action for {site.name}."
+                        ),
+                    )
+
+                    if not demo_status_transition_done:
+                        action.status = ActionStatus.IN_PROGRESS.value
+                        action = action_repo.update(action)
+                        log_audit(
+                            project_id=project.id,
+                            site_id=site.id,
+                            action_type="updated",
+                            entity_type="action",
+                            entity_id=action.id,
+                            summary=(
+                                f"{ADMIN_NAME} marked the '{action.title}' action as "
+                                f"in progress for {site.name}."
+                            ),
+                        )
+                        demo_status_transition_done = True
+
+                    if not demo_alert_ack_done:
+                        site_alert.status = AlertStatus.ACKNOWLEDGED.value
+                        site_alert.reviewer_note = (
+                            "Reviewed during seed data generation; monitoring closely."
+                        )
+                        site_alert = alert_repo.update(site_alert)
+                        log_audit(
+                            project_id=project.id,
+                            site_id=site.id,
+                            action_type="acknowledged",
+                            entity_type="alert",
+                            entity_id=site_alert.id,
+                            summary=(
+                                f"{ADMIN_NAME} acknowledged a {site_alert.severity} alert "
+                                f"on {site.name}."
+                            ),
+                        )
+                        demo_alert_ack_done = True
+
+        if total_alerts == 0 and first_site is not None:
+            # Guarantee at least one alert -> conservation-action pairing for
+            # the demo even if this particular random seed happened to
+            # produce analytics that don't naturally cross any alert
+            # threshold for any site.
+            fallback_assessment = assessment_repo.get_latest_for_site(first_site.id)
+            fallback_alert = alert_repo.create(
+                SiteAlert(
+                    site_id=first_site.id,
+                    assessment_id=fallback_assessment.id if fallback_assessment else None,
+                    severity="medium",
+                    title=f"Medium alert: {first_site.name}",
+                    description="Nature Health Score: below the healthy threshold.",
+                    reasons=["Nature Health Score dropped below the healthy threshold."],
+                    recommendation=(
+                        "Review the site's Nature Health Score trend and prioritize a "
+                        "follow-up assessment."
+                    ),
+                    status=AlertStatus.OPEN.value,
+                )
+            )
+            total_alerts += 1
+            fallback_action = action_repo.create(
+                ConservationAction(
+                    site_id=first_site.id,
+                    alert_id=fallback_alert.id,
+                    title=f"Investigate alert at {first_site.name}",
+                    description=fallback_alert.recommendation,
+                    action_category=ActionCategory.RISK_INVESTIGATION.value,
+                    priority=ActionPriority.MEDIUM.value,
+                    status=ActionStatus.PLANNED.value,
+                    due_date=today + timedelta(days=14),
+                )
+            )
+            total_actions += 1
+            log_audit(
+                project_id=first_site_project_id,
+                site_id=first_site.id,
+                action_type="created",
+                entity_type="action",
+                entity_id=fallback_action.id,
+                summary=(
+                    f"{ADMIN_NAME} created a Medium-priority Risk Investigation action "
+                    f"for {first_site.name}."
+                ),
+            )
+
         print()
         print("Seed complete:")
         print(f"  Projects: {len(PROJECTS_SPEC)}")
         print(f"  Sites: {total_sites}")
         print(f"  Analytics records: {total_analytics}")
         print(f"  Species observations: {total_observations}")
+        print(f"  Risk assessments: {total_assessments}")
+        print(f"  Alerts: {total_alerts}")
+        print(f"  Field observations: {total_field_observations}")
+        print(f"  Conservation actions: {total_actions}")
+        print(f"  Audit log entries: {audit_count}")
         print()
         print(f"Login with: {ADMIN_EMAIL} / {ADMIN_PASSWORD}")
     finally:

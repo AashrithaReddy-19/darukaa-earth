@@ -117,6 +117,40 @@ alembic/           migrations (hand-written initial schema in versions/0001_init
 scripts/seed.py    demo data seed script
 ```
 
+## Feature extensions (v2) — nature-intelligence module
+
+Five additive features layered on top of the original API, implemented against
+[`../docs/FEATURE_CONTRACT_V2.md`](../docs/FEATURE_CONTRACT_V2.md) (the binding contract — see it
+for exact request/response shapes, enum values, and every numeric threshold). None of the original
+five tables, endpoints, or auth flow changed.
+
+- **Nature Health Score & Alerts** — `site_risk_assessments` + `site_alerts` tables. The score is
+  a **deterministic weighted formula, not a trained AI/ML model**: 7 components (ecosystem health
+  25%, biodiversity trend 20%, vegetation trend 15%, carbon trend 15%, soil moisture 10%,
+  disturbance risk 10%, species-observation trend 5%), each normalized 0–100, summed and rounded.
+  Score bands: `>=80` healthy, `>=65` watch, `>=45` at_risk, `<45` critical. Recalculating an
+  assessment evaluates 6 alert-trigger rules (score below 70, vegetation/biodiversity/species
+  decline over a trailing ~3-month window, high disturbance risk, critically low soil moisture)
+  and creates at most one combined alert per run (skipped if an open alert already exists for
+  that site within 24h).
+  `GET/POST /api/v1/sites/{id}/risk-assessment[/recalculate]`,
+  `GET /api/v1/alerts`, `PATCH /api/v1/alerts/{id}`, `GET /api/v1/dashboard/alerts-summary`.
+- **Restoration Impact Timeline** — no new table; derived from existing `site_analytics`,
+  comparing the first vs latest record and template-filling a plain-English summary sentence
+  (explicitly **not** LLM-generated). `GET /api/v1/sites/{id}/impact-timeline`.
+- **Field Observations** — `field_observations` table for admin-logged sightings/notes, optional
+  lat/lng for map plotting. `GET/POST /api/v1/sites/{id}/field-observations`.
+- **Conservation Action Planner** — `conservation_actions` table, optionally linked to the alert
+  that prompted it. `GET/POST /api/v1/actions`, `PATCH /api/v1/actions/{id}`,
+  `GET /api/v1/dashboard/actions-summary`.
+- **Audit Trail** — `audit_logs` table, insert-only (no update/delete route exists anywhere for
+  it, enforced by a dedicated test), written on project/site/alert/action changes with a
+  human-readable `summary` and no secrets in `metadata`. `GET /api/v1/audit-logs`.
+
+All values produced by these features (scores, alerts, summaries, seeded observations/actions)
+are **demo intelligence data** — deterministic and rule-based from the seeded analytics, never
+presented as real satellite/sensor/ML output. Migration: `alembic/versions/0002_nature_intelligence.py`.
+
 ## Notes on a couple of contract judgment calls
 
 - **`site.latest_snapshot.recorded_at`**: the contract's Site example shows `"iso"` as a
