@@ -12,6 +12,7 @@ from app.models.site import Site
 from app.repositories.analytics_repository import AnalyticsRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.site_repository import SiteRepository
+from app.repositories.user_repository import UserRepository
 from app.schemas.site import (
     LatestSnapshot,
     ProjectSummary,
@@ -19,6 +20,7 @@ from app.schemas.site import (
     SiteRead,
     SiteUpdate,
 )
+from app.services.audit_log_service import record_audit_event
 
 _ALLOWED_GEOJSON_TYPES = {"Polygon", "MultiPolygon"}
 
@@ -61,6 +63,7 @@ class SiteService:
         self.sites = SiteRepository(db)
         self.projects = ProjectRepository(db)
         self.analytics = AnalyticsRepository(db)
+        self.users = UserRepository(db)
 
     def _to_read(self, site: Site, *, include_project: bool = False) -> SiteRead:
         boundary_geojson = mapping(to_shape(site.boundary))
@@ -131,6 +134,7 @@ class SiteService:
         )
         site = self.sites.create(site)
         site = self.sites.get_by_id_for_owner(site.id, owner_id)
+        self._record_site_audit(site, owner_id, action_type="created")
         return self._to_read(site)
 
     def get_site(self, site_id: uuid.UUID, owner_id: uuid.UUID) -> SiteRead:
@@ -160,11 +164,30 @@ class SiteService:
 
         site = self.sites.update(site)
         site = self.sites.get_by_id_for_owner(site.id, owner_id)
+        self._record_site_audit(site, owner_id, action_type="updated")
         return self._to_read(site, include_project=True)
 
     def delete_site(self, site_id: uuid.UUID, owner_id: uuid.UUID) -> None:
         site = self._get_owned_site_or_404(site_id, owner_id)
         self.sites.delete(site)
+
+    def _record_site_audit(self, site: Site, owner_id: uuid.UUID, *, action_type: str) -> None:
+        """Audit-log side effect for FEATURE_CONTRACT_V2's audit log feature.
+
+        Purely additive -- does not change this service's return values.
+        """
+        user = self.users.get_by_id(owner_id)
+        full_name = user.full_name if user is not None else "A user"
+        record_audit_event(
+            self.db,
+            user_id=owner_id,
+            project_id=site.project_id,
+            site_id=site.id,
+            action_type=action_type,
+            entity_type="site",
+            entity_id=site.id,
+            summary=f"{full_name} added a site boundary for {site.name}.",
+        )
 
     def _get_owned_project_or_404(self, project_id: uuid.UUID, owner_id: uuid.UUID):
         project = self.projects.get_by_id_for_owner(project_id, owner_id)

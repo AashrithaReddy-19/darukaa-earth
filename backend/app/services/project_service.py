@@ -8,7 +8,9 @@ from app.models.project import Project
 from app.repositories.analytics_repository import AnalyticsRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.site_repository import SiteRepository
+from app.repositories.user_repository import UserRepository
 from app.schemas.project import ProjectCreate, ProjectRead, ProjectUpdate
+from app.services.audit_log_service import record_audit_event
 
 
 class ProjectService:
@@ -17,6 +19,7 @@ class ProjectService:
         self.projects = ProjectRepository(db)
         self.sites = SiteRepository(db)
         self.analytics = AnalyticsRepository(db)
+        self.users = UserRepository(db)
 
     def _aggregates_for(self, project_ids: list[uuid.UUID]) -> dict[uuid.UUID, dict]:
         """Compute site_count / total_area_hectares / total_carbon_tco2e /
@@ -114,6 +117,7 @@ class ProjectService:
     def create_project(self, owner_id: uuid.UUID, payload: ProjectCreate) -> ProjectRead:
         project = Project(owner_id=owner_id, **payload.model_dump())
         project = self.projects.create(project)
+        self._record_project_audit(project, owner_id, action_type="created")
         aggregates = self._aggregates_for([project.id])
         return self._to_read(project, aggregates)
 
@@ -125,8 +129,29 @@ class ProjectService:
         for field, value in data.items():
             setattr(project, field, value)
         project = self.projects.update(project)
+        self._record_project_audit(project, owner_id, action_type="updated")
         aggregates = self._aggregates_for([project.id])
         return self._to_read(project, aggregates)
+
+    def _record_project_audit(
+        self, project: Project, owner_id: uuid.UUID, *, action_type: str
+    ) -> None:
+        """Audit-log side effect for FEATURE_CONTRACT_V2's audit log feature.
+
+        Purely additive -- does not change this service's return values.
+        """
+        user = self.users.get_by_id(owner_id)
+        full_name = user.full_name if user is not None else "A user"
+        record_audit_event(
+            self.db,
+            user_id=owner_id,
+            project_id=project.id,
+            site_id=None,
+            action_type=action_type,
+            entity_type="project",
+            entity_id=project.id,
+            summary=f"{full_name} {action_type} the project '{project.name}'.",
+        )
 
     def delete_project(self, project_id: uuid.UUID, owner_id: uuid.UUID) -> None:
         project = self.get_owned_project_or_404(project_id, owner_id)
