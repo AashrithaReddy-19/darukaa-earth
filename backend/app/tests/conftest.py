@@ -55,8 +55,9 @@ else:
         with engine.begin() as conn:
             conn.execute(
                 text(
-                    "TRUNCATE TABLE species_observations, site_analytics, sites, "
-                    "projects, users RESTART IDENTITY CASCADE"
+                    "TRUNCATE TABLE audit_logs, conservation_actions, field_observations, "
+                    "site_alerts, site_risk_assessments, species_observations, "
+                    "site_analytics, sites, projects, users RESTART IDENTITY CASCADE"
                 )
             )
         yield
