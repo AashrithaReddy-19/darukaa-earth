@@ -1,7 +1,17 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Leaf, LogOut, Menu, TreePine, X } from 'lucide-react'
+import {
+  AlertTriangle,
+  ClipboardList,
+  History,
+  LayoutDashboard,
+  Leaf,
+  LogOut,
+  Menu,
+  TreePine,
+  X,
+} from 'lucide-react'
 import clsx from 'clsx'
 import { useAuth } from '../hooks/useAuth'
 import { initials } from '../utils/formatters'
@@ -9,6 +19,9 @@ import { initials } from '../utils/formatters'
 const NAV_ITEMS = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/projects', label: 'Projects', icon: TreePine },
+  { to: '/alerts', label: 'Alerts', icon: AlertTriangle },
+  { to: '/actions', label: 'Actions', icon: ClipboardList },
+  { to: '/audit', label: 'Audit Log', icon: History },
 ]
 
 export function AppLayout({ children }: { children: ReactNode }) {

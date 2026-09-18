@@ -7,6 +7,8 @@ import { SummaryCards } from '../features/dashboard/SummaryCards'
 import { RecentProjectsList } from '../features/dashboard/RecentProjectsList'
 import { RecentActivityList } from '../features/dashboard/RecentActivityList'
 import { DashboardMapSection } from '../features/dashboard/DashboardMapSection'
+import { AlertsSummaryCard } from '../features/alerts/AlertsSummaryCard'
+import { ActionsSummaryCard } from '../features/actions/ActionsSummaryCard'
 import { useAsync } from '../hooks/useAsync'
 import { getDashboardMapSites, getDashboardSummary } from '../api/dashboard'
 
@@ -73,6 +75,13 @@ export function DashboardPage() {
             isLoading={summaryState.isLoading}
           />
         </div>
+
+        {hasAnyProjects && (
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            <AlertsSummaryCard />
+            <ActionsSummaryCard />
+          </div>
+        )}
       </div>
     </AppLayout>
   )

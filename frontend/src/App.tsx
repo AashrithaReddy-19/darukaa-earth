@@ -10,6 +10,9 @@ import { ProjectFormPage } from './pages/ProjectFormPage'
 import { ProjectDetailPage } from './pages/ProjectDetailPage'
 import { SiteFormPage } from './pages/SiteFormPage'
 import { SiteDetailPage } from './pages/SiteDetailPage'
+import { AlertsPage } from './pages/AlertsPage'
+import { ActionsPage } from './pages/ActionsPage'
+import { AuditLogPage } from './pages/AuditLogPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 
 export default function App() {
@@ -85,6 +88,31 @@ export default function App() {
               element={
                 <ProtectedRoute>
                   <SiteDetailPage />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/alerts"
+              element={
+                <ProtectedRoute>
+                  <AlertsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/actions"
+              element={
+                <ProtectedRoute>
+                  <ActionsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/audit"
+              element={
+                <ProtectedRoute>
+                  <AuditLogPage />
                 </ProtectedRoute>
               }
             />
