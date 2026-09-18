@@ -5,3 +5,12 @@ export * from './project'
 export * from './site'
 export * from './analytics'
 export * from './dashboard'
+
+// v2 feature extension types (docs/FEATURE_CONTRACT_V2.md) — additive, v1 exports above unchanged.
+export * from './enumsV2'
+export * from './riskAssessment'
+export * from './alert'
+export * from './observation'
+export * from './action'
+export * from './audit'
+export * from './impactTimeline'
